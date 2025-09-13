@@ -1,0 +1,14 @@
+---
+title: "Actividad 2 MSE Grupo 4"
+author: "Sebastian Toro y Carlos Preciado"
+date: "2025-09-13"
+output: rmdformats::readthedown
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Descripción del Problema 1
+
+Una empresa de servicio telefónico
