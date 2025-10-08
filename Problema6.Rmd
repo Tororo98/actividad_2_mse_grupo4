@@ -1,0 +1,825 @@
+---
+title: '6'
+author: "carlos"
+output: html_document
+---
+```{r message = FALSE, include = FALSE, warning = FALSE}
+
+#Librerias
+library(ggplot2)
+library(boot)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(readxl)
+library(mice)
+library(summarytools)
+library(goftest)
+library(PMCMRplus)
+library(nortest)
+library(fBasics)
+
+```
+
+## Descripción del Problema 6: Prueba de hipótesis e intervalo de confianza
+
+Teniendo en cuenta el contexto y los datos utilizados en el informe estadístico desarrollado en la Actividad 1, formule tres preguntas de investigación relevantes. 
+Para cada pregunta, realice el análisis correspondiente utilizando pruebas de hipótesis e intervalos de confianza. Además, verifique el cumplimiento de los supuestos necesarios para garantizar la validez de los procedimientos estadísticos aplicados.
+
+```{r message = FALSE, include = FALSE, warning = FALSE}
+#############################################################
+#Importar base de datos
+#############################################################
+data <- readxl::read_excel("data_actividad1.xlsx",sheet=1) #Lectura de .xlsx
+
+# Eliminar duplicados, conservando la primera aparición
+data1 <- distinct(data)
+
+############################################################################
+############################################################################
+#Manejo de valores atípicos
+############################################################################
+############################################################################
+
+############################################################################
+#Datos atipicos de variable Age
+##########################################################################
+
+# Copia base
+data2 <- data1
+
+# 1) Asegurar tipo numérico correcto para Age
+if (is.factor(data2$Age))  data2$Age <- as.numeric(as.character(data2$Age))
+if (is.character(data2$Age)) data2$Age <- as.numeric(data2$Age)
+
+# 2) Limpiar imposibles antes de imputar
+data2 <- data2 %>%
+  mutate(Age = ifelse(Age < 0 | Age > 120, NA, Age))
+
+# 3) Preparar datos para mice
+data_mice <- data2 %>%
+  mutate(across(where(is.character), as.factor))
+
+vars_imputar <- "Age"
+predictores_candidatos <- c(
+  "Income","MntWines","MntMeatProducts","MntFishProducts","MntSweetProducts",
+  "MntGoldProds","MntRegularProds","Kidhome","Teenhome","Recency","MntTotal",
+  "NumDealsPurchases","NumWebPurchases","NumCatalogPurchases","NumStorePurchases",
+  "NumWebVisitsMonth","Complain","Response","Customer_Days","AcceptedCmpOverall"
+)
+predictores <- intersect(predictores_candidatos, names(data_mice))
+dt <- data_mice[, unique(c(vars_imputar, predictores)), drop = FALSE]
+
+# Método: solo Age
+meth <- make.method(dt); meth[] <- ""
+meth["Age"] <- "pmm"   # o "rf"
+
+# Matriz de predicción
+pred <- make.predictorMatrix(dt)
+diag(pred) <- 0
+pred["Age","Age"] <- 0
+
+# (Clave) Regla post-imputación: mantener Age en [0, 120]
+post <- make.post(dt)
+post["Age"] <- "imp[[j]][ imp[[j]] < 0 | imp[[j]] > 120 ] <- NA"
+
+set.seed(123)
+imp <- mice(dt, m = 5, maxit = 10, method = meth,
+            predictorMatrix = pred, post = post, seed = 123)
+
+# 4) Sustituir e inspeccionar
+comp <- complete(imp, 1)
+data2$Age <- comp$Age
+
+############################################################################
+#Datos atipicos de variable MntRegularProds
+############################################################################
+
+# --- 0) Asegurar tipo NUMÉRICO real ---
+# (si es factor/character, conviértelo correctamente)
+if (is.factor(data2$MntRegularProds))  data2$MntRegularProds <- as.numeric(as.character(data2$MntRegularProds))
+if (is.character(data2$MntRegularProds)) data2$MntRegularProds <- as.numeric(data2$MntRegularProds)
+
+# --- 1) Limpieza previa: NO permitir negativos en observados ---
+data2 <- data2 %>%
+  mutate(MntRegularProds = ifelse(MntRegularProds < 0, NA, MntRegularProds))
+
+# --- 2) Preparar datos para mice ---
+data_mice <- data2 %>% mutate(across(where(is.character), as.factor))
+
+vars_imputar <- "MntRegularProds"
+predictores  <- c("Income","Age","MntWines","MntMeatProducts",
+                  "MntFishProducts","MntSweetProducts","MntGoldProds",
+                  "Kidhome","Teenhome","Recency","MntTotal")
+
+dt <- data_mice[, unique(c(vars_imputar, intersect(predictores, names(data_mice)))), drop = FALSE]
+
+# --- 3) Configuración mice: solo imputamos MntRegularProds con PMM ---
+meth <- make.method(dt); meth[] <- ""
+meth["MntRegularProds"] <- "pmm"  # también puedes probar "rf"
+
+pred <- make.predictorMatrix(dt)
+diag(pred) <- 0
+pred["MntRegularProds","MntRegularProds"] <- 0
+
+# (CLAVE) 4) Regla post-imputación: NO permitir negativos en cada iteración
+post <- make.post(dt)
+# Si PMM llega a proponer un valor < 0, lo marcamos NA para que se vuelva a imputar
+post["MntRegularProds"] <- "imp[[j]][ imp[[j]] < 0 ] <- NA_real_"
+
+set.seed(123)
+imp <- mice(dt, m = 5, maxit = 10, method = meth,
+            predictorMatrix = pred, post = post, seed = 123)
+
+# --- 5) Reemplazar en data2 y verificación ---
+comp <- complete(imp, 1)
+data2$MntRegularProds <- comp$MntRegularProds
+
+##############################################################################
+#Imputacion de datos cualitativos: Marital
+#############################################################################
+
+#La columna marital como se comprobo anteriormente, tiene filas en donde
+#hay "solo ceros", es decir, no pertenece a ninguna de las categorias
+#lo cual no es logico asi que se procede a eliminar esas columnas en donde
+#solo hay ceros o cuando hay mas de un 1
+
+dataframe_marital <- list(
+  marital_divorced    = data1$marital_Divorced,
+  marital_married      = data1$marital_Married,
+  marital_single = data1$marital_Single,
+  marital_together     = data1$marital_Together,
+  marital_widow        = data1$marital_Widow
+)
+
+#1) Deteccion de filas problematicas
+
+# columnas dummy
+mar_cols <- c("marital_Divorced","marital_Married",
+              "marital_Single","marital_Together","marital_Widow")
+
+data2 <- data2 %>%
+  # 1) número de unos por fila
+  mutate(n_ones = rowSums(across(all_of(mar_cols)) == 1, na.rm = TRUE),
+         # 2) bandera: si algún valor no es 0 ni 1
+         bad_values = rowSums(across(all_of(mar_cols), ~ !.x %in% c(0,1)), na.rm = TRUE),
+         # 3) clasificar cada fila
+         marital_flag = case_when(
+           bad_values > 0         ~ "valores_invalidos",   # ej. 2, 100, etc.
+           n_ones == 0            ~ "solo_ceros",
+           n_ones > 1             ~ "multiples_unos",
+           n_ones == 1            ~ "valida",
+           TRUE                   ~ "indeterminado"
+         ))
+
+#2)Limpieza
+# Cualquier fila problemática -> convertir todas marital_X en NA
+data2 <- data2 %>%
+  mutate(across(all_of(mar_cols),
+                ~ ifelse(marital_flag == "valida", .x, NA)))
+
+freq(data2$marital_Divorced,cumul = FALSE)
+
+#3)imputacion
+# Construir la columna categórica Marital:
+#    - filas con exactamente un 1 -> categoría correspondiente
+#    - filas con 0, >1 o NA en dummies -> NA (se imputará)
+n_ones <- rowSums(data2[, mar_cols] == 1, na.rm = TRUE)
+
+data2 <- data2 %>%
+  mutate(
+    Marital = case_when(
+      n_ones == 1 & marital_Divorced == 1 ~ "Divorced",
+      n_ones == 1 & marital_Married  == 1 ~ "Married",
+      n_ones == 1 & marital_Single   == 1 ~ "Single",
+      n_ones == 1 & marital_Together == 1 ~ "Together",
+      n_ones == 1 & marital_Widow    == 1 ~ "Widow",
+      TRUE                                ~ NA_character_
+    )
+  )
+
+# 3) IMPUTACIÓN con mice (imputamos solo Marital)
+#    Prepara predictores: ajusta esta lista a tus columnas disponibles
+predictores_candidatos <- c(
+  "Age","Income","MntWines","MntMeatProducts","MntFishProducts",
+  "MntSweetProducts","MntGoldProds","MntRegularProds","Kidhome",
+  "Teenhome","Recency","NumDealsPurchases","NumWebPurchases",
+  "NumCatalogPurchases","NumStorePurchases","NumWebVisitsMonth",
+  "Complain","Response","Customer_Days","AcceptedCmpOverall","MntTotal"
+)
+
+# Convierte character a factor (recomendación mice) y arma dataset para imputar
+data_mice <- data2 %>% mutate(across(where(is.character), as.factor))
+vars <- c("Marital", intersect(predictores_candidatos, names(data_mice)))
+dt   <- data_mice[, vars, drop = FALSE]
+
+# Configura método: solo imputamos Marital (factor multinomial)
+meth <- make.method(dt); meth[] <- ""
+meth["Marital"] <- "polyreg"  # para variable categórica con >2 niveles
+
+# Matriz de predicción (puedes usar quickpred para seleccionar por correlación)
+pred <- quickpred(dt, mincor = 0.1, include = "Marital")
+diag(pred) <- 0
+
+set.seed(123)
+imp <- mice(dt, m = 5, method = meth, predictorMatrix = pred, seed = 123)
+
+# Sustituye Marital imputado en data2
+data2$Marital <- complete(imp, 1)$Marital
+
+# 4) REGENERAR DUMMIES limpias y consistentes desde Marital
+data2 <- data2 %>%
+  mutate(
+    marital_Divorced = as.integer(Marital == "Divorced"),
+    marital_Married  = as.integer(Marital == "Married"),
+    marital_Single   = as.integer(Marital == "Single"),
+    marital_Together = as.integer(Marital == "Together"),
+    marital_Widow    = as.integer(Marital == "Widow")
+  )
+
+# 5) VERIFICACIÓN: cada fila debe tener exactamente un 1
+chk <- rowSums(data2[, mar_cols])
+table(chk, useNA = "ifany")  # idealmente todo 1
+
+############################################################################
+#freq(data2$marital_Divorced) #los valores de 100 ya no estan
+#Se ha limpiado e impitado valores de 100 en marital_Divorced
+#############################################################################
+
+mar_cols <- c("marital_Divorced","marital_Married",
+              "marital_Single","marital_Together","marital_Widow")
+niveles <- c("Single","Married","Together","Divorced","Widow")
+
+# 1) Reconstruir Marital desde dummies (limpia valores fuera de 0/1)
+data2 <- data2 %>%
+  mutate(across(all_of(mar_cols), ~ ifelse(.x %in% c(0,1), .x, NA_integer_)))
+
+n_ones <- rowSums(data2[, mar_cols, drop=FALSE] == 1, na.rm = TRUE)
+
+data2 <- data2 %>%
+  mutate(Marital = case_when(
+    n_ones == 1 & marital_Divorced == 1 ~ "Divorced",
+    n_ones == 1 & marital_Married  == 1 ~ "Married",
+    n_ones == 1 & marital_Single   == 1 ~ "Single",
+    n_ones == 1 & marital_Together == 1 ~ "Together",
+    n_ones == 1 & marital_Widow    == 1 ~ "Widow",
+    TRUE                                ~ NA_character_
+  )) %>%
+  mutate(Marital = factor(Marital, levels = niveles))
+
+# 2) Imputar SOLO los NA de Marital con mice (polyreg)
+predictores <- c("Age","Income","MntWines","MntMeatProducts","MntFishProducts",
+                 "MntSweetProducts","MntGoldProds","MntRegularProds",
+                 "Kidhome","Teenhome","Recency","NumDealsPurchases",
+                 "NumWebPurchases","NumCatalogPurchases","NumStorePurchases",
+                 "NumWebVisitsMonth","Complain","Response","Customer_Days",
+                 "AcceptedCmpOverall","MntTotal")
+
+dt <- data2 %>%
+  mutate(across(where(is.character), as.factor)) %>%
+  select(Marital, any_of(predictores))
+
+meth <- make.method(dt); meth[] <- ""
+meth["Marital"] <- "polyreg"
+
+pred <- make.predictorMatrix(dt)
+diag(pred) <- 0
+pred["Marital","Marital"] <- 0
+
+set.seed(123)
+imp <- mice(dt, m = 5, maxit = 10, method = meth, predictorMatrix = pred, seed = 123)
+
+data2$Marital <- complete(imp, 1)$Marital
+data2$Marital <- factor(data2$Marital, levels = niveles)  # asegurar niveles
+
+# 3) FALLOVER (por si aún quedan NA): rellenar con muestreo proporcional
+restan <- which(is.na(data2$Marital))
+if (length(restan) > 0) {
+  dist <- prop.table(table(na.omit(data2$Marital)))
+  set.seed(123)
+  data2$Marital[restan] <- sample(names(dist), length(restan), replace = TRUE,
+                                  prob = as.numeric(dist))
+  data2$Marital <- factor(data2$Marital, levels = niveles)
+}
+
+# 4) Regenerar dummies consistentes
+data2 <- data2 %>%
+  mutate(
+    marital_Divorced = as.integer(Marital == "Divorced"),
+    marital_Married  = as.integer(Marital == "Married"),
+    marital_Single   = as.integer(Marital == "Single"),
+    marital_Together = as.integer(Marital == "Together"),
+    marital_Widow    = as.integer(Marital == "Widow")
+  )
+
+# 5) Chequeos rápidos
+cat("NA en Marital:", sum(is.na(data2$Marital)), "\n")
+print(table(rowSums(data2[, mar_cols, drop=FALSE])))
+
+
+
+marital <- sapply(seq_len(nrow(data2)), function(i) {
+  nombres_con_uno <- names(dataframe_marital)[
+    sapply(dataframe_marital, function(v) v[i] == 1) # Recorre en el orden de la lista
+  ]
+  
+  if (length(nombres_con_uno) == 0) {
+    "solo ceros"
+  } else {
+    paste(nombres_con_uno, collapse = ", ")
+  }
+})
+
+
+##############################################################################
+#Imputacion: Reemplazar valores faltantes por mice y random forest
+#Primero: Imputacion Income
+##############################################################################
+
+set.seed(123)
+
+# 1) Preparar datos para mice (trabajamos sobre data2)
+data_mice <- data2 %>%
+  mutate(across(where(is.character), as.factor))
+
+# 2) Variables a imputar
+vars_imputar <- c("Income")
+
+# 3) Configurar métodos y predictores
+meth <- make.method(data_mice)
+meth[] <- ""                    # por defecto no imputar
+meth[vars_imputar] <- "rf"      # random forest para Income (puedes usar "pmm" si prefieres)
+
+pred <- quickpred(data_mice, mincor = 0.1, include = vars_imputar)
+diag(pred) <- 0                 # no predecirse a sí misma
+
+# 4) Ejecutar mice
+imp <- mice(data_mice, m = 5, maxit = 20,
+            method = meth, predictorMatrix = pred, seed = 123)
+
+# 5) Extraer una versión completa y pasar la imputación a data2
+comp_rf <- complete(imp, 1)
+data2$Income <- comp_rf$Income
+
+###############################################################################
+#Imputacion MntWines
+###############################################################################
+
+set.seed(123)
+
+# 1) Prepara datos para mice (sobre data2)
+data_mice <- data2 %>%
+  mutate(across(where(is.character), as.factor))
+
+# 2) Variables a imputar
+vars_imputar <- c("MntWines")   # puedes incluir más, ej: c("Income","MntWines")
+
+# 3) Configurar métodos/predictores
+meth <- make.method(data_mice)
+meth[] <- ""                     # por defecto no imputar nada
+meth[vars_imputar] <- "rf"       # imputar MntWines con random forest
+
+# 4) Configurar predictores
+pred <- quickpred(data_mice, mincor = 0.1, include = vars_imputar)
+diag(pred) <- 0                  # una variable no se predice a sí misma
+
+# 5) Ejecutar mice con random forest
+imp <- mice(data_mice, m = 5, maxit = 20,
+            method = meth, predictorMatrix = pred, seed = 123)
+
+# 6) Extraer imputación completa y guardar en data2
+comp_rf <- complete(imp, 1)
+data2$MntWines <- comp_rf$MntWines
+
+sum(is.na(data2$Income))
+sum(is.na(data2$MntWines))
+
+summarytools::freq(data2$Age)
+summarytools::freq(data2$MntRegularProds)
+summarytools::freq(data2$marital_Divorced)
+
+data2$Marital[70]
+summarytools::freq(data2$Marital)
+
+data2$NumHijos <- data2$Kidhome + data2$Teenhome
+
+data2$education_2nCycle <- data2$`education_2n Cycle`
+
+data2 <- data2 %>%
+  mutate(
+    Education = case_when(
+      education_2nCycle == 1 ~ "2nd Cycle",
+      education_Basic == 1 ~ "Basic",
+      education_Graduation == 1 ~ "Graduation",
+      education_Master == 1 ~ "Master",
+      education_PhD == 1 ~ "PhD",
+      TRUE ~ NA_character_
+    )
+  )
+
+```
+
+### Objetivos:
+ 1. Identificar si el nivel educativo de los clientes influye en sus ingresos anuales (Income), aplicando pruebas de normalidad y, en caso de no cumplirse este supuesto, utilizar la prueba no paramétrica de Kruskal–Wallis para contrastar la hipótesis de igualdad de distribuciones entre los diferentes niveles educativos. En caso de encontrar diferencias significativas, realizar un análisis post-hoc de Nemenyi para precisar entre qué niveles educativos se presentan dichas diferencias y complementar el estudio con intervalos de confianza bootstrap BCa (95%) para la mediana de ingresos en cada nivel, a fin de interpretar con mayor detalle las brechas observadas.
+ 2. Determinar si existen diferencias significativas en la distribución de los ingresos familiares en función del número de hijos en el hogar, aplicando la prueba estadistica que corresponda y análisis post-hoc, complementado con intervalos de confianza (95%) para la mediana en cada grupo.
+ 3. Encontar diferencias significativas en la distribución del gasto total (MntSum) entre los clientes según el número de campañas aceptadas, y cuáles son las magnitudes de dichas diferencias en términos de medianas e intervalos de confianza (95%).
+
+### Respuesta:
+
+#### 1. Income vs. Nvl educativo
+
+Primero se hace un test de normalidad para evaluar que tipo de metodo (parametrico/no parametrico) se utilizara en la prueba de hipotesis, se propone un $\alpha$ del 0.001 debido al gran tamaño de la muestra siendo
+
+$$
+H_0 : \text{Los datos siguen una distribución normal.}
+$$
+$$
+H_1 : \text{Los datos no siguen una distribución normal.}
+$$
+
+```{r echo = FALSE, warning = FALSE}
+###############################################################################
+#Test de normalidad
+################################################################################
+fBasics::dagoTest(data2$Income)
+
+```
+El resultado anterior indica que la variable no es normal porque tiene una curtosis anormalmente baja o alta, aunque es simétrica, por lo que hay que utilizar metodos no
+parametricos.
+
+Se procede a evaluar la homogeneidad de varianzas con el fin de verificar una de las condiciones deseables para la correcta interpretación del test de Kruskal–Wallis. Aunque esta prueba no exige normalidad de los datos, su validez interpretativa se ve reforzada cuando las distribuciones de los grupos presentan formas similares, lo cual incluye varianzas comparables. La comprobación de homogeneidad de varianzas permite determinar si el contraste se interpretará estrictamente como diferencias en medianas o, de manera más general, como diferencias en rangos/distribuciones con u $\alpha$ = 0.001
+
+$$
+H_0 : \text{Todas las poblaciones (Education) tienen la misma varianza en Income}
+$$
+
+$$
+H_0 : \text{Al menos un grupo tiene una varianza diferente de los demás.}
+$$
+
+
+```{r echo = FALSE, warning = FALSE}
+library(car)
+
+data3 <- data2 %>%
+  select(Income, Education)
+
+car::leveneTest(Income ~ Education, data = data3)
+```
+Ahora se procede a aplicar la prueba de Kruskal–Wallis, se fija un nivel de significancia de 0.001 debido al tamaño de la muestra con el fin de reducir la probabilidad de falsos positivos y garantizar que únicamente diferencias en la distribucion realmente relevantes superen el umbral de significancia.
+
+$$
+H_0 : \text{La distribución de Income es la misma en todos los grupos de Education.}
+$$
+$$
+H_1 : \text{Al menos un grupo tiene una distribución diferente de Income.}
+$$
+
+```{r echo = FALSE, warning = FALSE}
+
+##############################################################################
+#prueba de Kruskal–Wallis
+#############################################################################
+
+# Asegúrate de que Education es factor
+data3$Education <- as.factor(data3$Education)
+
+# Kruskal-Wallis
+kruskal.test(Income ~ Education, data = data3)
+
+```
+
+Se rechaza la hipotesis nula debido a que $p-value$ es menor a 0.001 lo cual indica que al menos la distribucion de un grupo educativo difiere de los demás, por lo que se requiere un análisis post-hoc para identificar cuáles pares de niveles educativos difieren significativamente.
+
+```{r echo = FALSE, warning = FALSE}
+
+# Para ello se hara el post-hoc de Nemenyi
+posthoc <- kwAllPairsNemenyiTest(Income ~ Education, data = data3)
+
+# Ver resultados
+summary(posthoc)
+
+```
+
+Los resultados del análisis post-hoc muestran que los ingresos difieren de manera significativa entre los niveles educativos más bajos (2nd Cycle y Basic) y los niveles superiores (Graduation, Master y PhD), con p-valores muy pequeños que indican diferencias consistentes. En cambio, entre los niveles más altos de formación (Graduation, Master y PhD) no se observan diferencias estadísticamente significativas, lo que sugiere que el principal salto en los ingresos se produce al pasar de una educación básica a una universitaria, mientras que los estudios de posgrado no implican incrementos sustanciales en el ingreso respecto al nivel de pregrado.
+
+```{r echo = FALSE, warning = FALSE}
+#############################################################################
+#Intervalos de confianza
+#############################################################################
+
+# Aseguramos el orden del factor Education
+data3$Education <- factor(data3$Education,
+                          levels = c("Basic", "2nd Cycle", "Graduation", "Master", "PhD"))
+
+# Función bootstrap para la MEDIANA
+boot_median <- function(data, indices) {
+  d <- data[indices]
+  median(d, na.rm = TRUE)
+}
+
+# Parámetros
+set.seed(123)   # reproducibilidad
+B <- 5000       # número de réplicas bootstrap
+alpha <- 0.05   # nivel de confianza (95%)
+
+# Calcular IC BCa para cada nivel
+resultados <- lapply(levels(data3$Education), function(niv) {
+  subset_data <- data3$Income[data3$Education == niv]
+  subset_data <- subset_data[!is.na(subset_data)]   # quitar NA para estabilidad
+  n_g <- length(subset_data)
+  
+  # Si no hay datos suficientes, devolvemos NA
+  if (n_g < 2) {
+    return(data.frame(
+      Education = niv,
+      n = n_g,
+      Median = ifelse(n_g == 1, subset_data, NA_real_),
+      IC_low = NA_real_,
+      IC_high = NA_real_
+    ))
+  }
+  
+  boot_obj <- boot(data = subset_data, statistic = boot_median, R = B)
+  ci <- boot.ci(boot_obj, conf = 1 - alpha, type = "bca")
+  
+  data.frame(
+    Education = niv,
+    n = n_g,
+    Median = median(subset_data),
+    IC_low = ci$bca[4],
+    IC_high = ci$bca[5]
+  )
+})
+
+# Unir en data frame y mostrar
+df_resultados <- bind_rows(resultados)
+kable(df_resultados,caption = "Medianas de ingresos e intervalos de confianza bootstrap BCa (95%) por nivel educativo")
+
+```
+Los resultados muestran que el nivel educativo tiene una fuerte asociación con el ingreso, especialmente al comparar la educación básica con niveles más altos. El salto más grande ocurre entre Basic y el resto, y en menor medida entre 2nd Cycle y PhD. Una vez alcanzado el nivel universitario (Graduation), los ingresos tienden a estabilizarse, ya que no se observan diferencias significativas entre licenciatura, maestría y doctorado.
+
+#### 2. Income vs. Numero de hijos
+
+Teniendo en cuenta que en el objetivo anterior se determino que `Income` no sigue una distribucion normal, se utilizaran metodos no parametricos. Se procede a evaluar la homogeneidad de varianzas con el fin de verificar una de las condiciones deseables para la correcta interpretación del test de Kruskal–Wallis. Aunque esta prueba no exige normalidad de los datos, su validez interpretativa se ve reforzada cuando las distribuciones de los grupos presentan formas similares, lo cual incluye varianzas comparables. La comprobación de homogeneidad de varianzas permite determinar si el contraste se interpretará estrictamente como diferencias en medianas o, de manera más general, como diferencias en rangos/distribuciones con u $\alpha$ = 0.001
+
+
+Se fija un nivel de significancia de 0.001 debido al tamaño de la muestra con el fin de reducir la probabilidad de falsos positivos y garantizar que únicamente diferencias en la distribucion realmente relevantes superen el umbral de significancia.
+
+$$
+H_0 : \text{La distribución de Income es la misma en todos los grupos de numero de hijos}
+$$
+$$
+H_1 : \text{Al menos un grupo tiene una distribución diferente de Income.}
+$$
+```{r echo = FALSE, warning = FALSE}
+#Se crea una nueva columna llamada numero de hijos
+data2 <- data2 %>%
+  mutate(KidTeenHome = Kidhome + Teenhome)
+
+data4 <- data2 %>%
+  select(Income, KidTeenHome)
+
+data4$KidTeenHome <- as.factor(data4$KidTeenHome)
+
+car::leveneTest(Income ~ KidTeenHome, data = data4)
+```
+Ahora se procede a aplicar la prueba de Kruskal–Wallis, se fija un nivel de significancia de 0.001 debido al tamaño de la muestra con el fin de reducir la probabilidad de falsos positivos y garantizar que únicamente diferencias en la distribucion realmente relevantes superen el umbral de significancia.
+
+$$H_0 : \text{La distribución de Income es la misma en todos los grupos de numero de hijos.}$$
+
+$$H_1 : \text{Al menos un grupo tiene una distribución diferente de Income.}$$
+
+```{r echo = FALSE, warning = FALSE}
+###############################################################################
+### Income vs n hijos
+###############################################################################
+
+#prueba de Kruskal–Wallis
+
+# Se fija un nivel de significancia de 0.001 debido al tamaño de la muestra
+# Se estableció un nivel de significancia de 0.001 con el fin de 
+# reducir la probabilidad de falsos positivos y garantizar que 
+# únicamente diferencias en la distribucion realmente relevantes superen el 
+# umbral de significancia.
+
+data4$KidTeenHome <- as.factor(data4$KidTeenHome)
+
+# Aplicamos Kruskal-Wallis
+kruskal.test(Income ~ KidTeenHome, data = data4)
+
+```
+Se rechaza la hipotesis nula ($\alpha$ > $p-value$) lo cual implica que almenos uno de los grupos tiene una tiene una distribución diferente. Para saber cual distribucion difiere significativamente, se utiliza el Post-hoc Nemenyi
+
+```{r echo = FALSE, warning = FALSE}
+
+# Post-hoc Nemenyi
+posthoc2 <- kwAllPairsNemenyiTest(Income ~ KidTeenHome, data = data4)
+
+# Ver resultados
+summary(posthoc2)
+
+```
+
+El análisis post-hoc de Nemenyi mostró que los ingresos difieren significativamente entre quienes no tienen hijos y quienes tienen 1, 2 o 3 hijos (p < 0.001). En cambio, entre los grupos con hijos (1 vs 2, 1 vs 3, 2 vs 3) no se encontraron diferencias significativas, lo que indica que la principal brecha de ingresos se produce entre los hogares sin hijos y los que tienen al menos un hijo.
+
+Ahora se procese a evaluar intervalos de confianza:
+
+```{r echo = FALSE, warning = FALSE}
+
+##############################################################################
+# Intervalos de confianza
+##############################################################################
+
+# Parámetros
+set.seed(123)   # reproducibilidad
+B <- 5000       # número de réplicas bootstrap
+alpha <- 0.05   # IC 95%
+
+# Aseguramos que KidTeenHome sea un factor ordenado por número de hijos
+data4$KidTeenHome <- factor(data4$KidTeenHome,
+                            levels = sort(unique(data4$KidTeenHome)))
+
+# Calcular IC BCa por número de hijos
+resultados <- lapply(levels(data4$KidTeenHome), function(niv) {
+  subset_data <- data4$Income[data4$KidTeenHome == niv]
+  subset_data <- subset_data[!is.na(subset_data)]   # quitar NA
+  n_g <- length(subset_data)
+  
+  if (n_g < 2) {
+    return(data.frame(
+      KidTeenHome = niv,
+      n = n_g,
+      Median = ifelse(n_g == 1, subset_data, NA_real_),
+      IC_low = NA_real_,
+      IC_high = NA_real_
+    ))
+  }
+  
+  boot_obj <- boot(data = subset_data, statistic = boot_median, R = B)
+  ci <- boot.ci(boot_obj, conf = 1 - alpha, type = "bca")
+  
+  data.frame(
+    KidTeenHome = niv,
+    n = n_g,
+    Median = median(subset_data),
+    IC_low = ci$bca[4],
+    IC_high = ci$bca[5]
+  )
+})
+
+# Combinar resultados en data frame
+df_resultados <- bind_rows(resultados)
+kable(df_resultados,caption = "Medianas de ingresos segun numero de hijos e intervalos de confianza bootstrap BCa (95%) por nivel educativo")
+```
+El análisis de la relación entre el número de hijos en el hogar y el nivel de ingresos revela diferencias estadísticamente significativas. Los resultados muestran que los hogares sin hijos presentan una mediana de ingresos notablemente más alta (723,350) en comparación con aquellos que tienen uno o más hijos, cuyos ingresos medianos fluctúan entre 434,000 y 473,000. Los intervalos de confianza bootstrap BCa (95%) confirman que los ingresos de los hogares con hijos no difieren significativamente entre sí, mientras que el grupo sin hijos se distingue claramente de los demás. El análisis post-hoc de Nemenyi respalda este hallazgo, indicando diferencias altamente significativas entre el grupo sin hijos y todos los grupos con hijos (p < 0.001), pero ausencia de diferencias entre los grupos con uno, dos o tres hijos. En conjunto, estos resultados sugieren que la variable determinante es la presencia de hijos en el hogar, más que el número exacto, lo cual evidencia una brecha sustancial de ingresos entre familias con y sin hijos.
+
+#### 3. MntSum vs. AcceptedCmpOverall
+
+Se revisa si la columna MntSum que representa MntWines + MntFruits + MntMeatProducts + MntFishProducts + MntSweetProducts + MntGoldProds cumple con condiciones de 
+normalidad para evaluar que tipo de metodo (parametrico/no parametrico) se utilizara en la prueba de hipotesis, se propone un $\alpha$ del 0.001 debido al gran tamaño de la muestra siendo
+
+$$
+H_0 : \text{Los datos siguen una distribución normal.}
+$$
+$$
+H_1 : \text{Los datos no siguen una distribución normal.}
+$$
+
+```{r echo = FALSE, warning = FALSE}
+###############################################################################
+#MntSum vs AcceptedCmpOverall
+#############################################################################
+
+#Creacion de columna MntSum
+data2 <- data2 %>%
+  mutate(MntSum = MntWines + MntFruits + MntMeatProducts +
+           MntFishProducts + MntSweetProducts + MntGoldProds)
+
+# Revision de normalidad
+fBasics::dagoTest(data2$MntSum)
+
+```
+Los valores de p son extremadamente bajos en el test ómnibus y en los componentes de asimetría y curtosis muestran que la variable analizada no sigue una distribución normal. Esto sugiere que no es apropiado usar pruebas paramétricas que asuman normalidad, y en su lugar se recomienda emplear métodos no paramétricos.
+
+```{r echo = FALSE, warning = FALSE}
+data5 <- data2 %>%
+  select(MntSum, AcceptedCmpOverall)
+
+data5$AcceptedCmpOverall <- as.factor(data5$AcceptedCmpOverall)
+
+car::leveneTest(MntSum ~ AcceptedCmpOverall, data = data5)
+```
+Se procede a aplicar la prueba de Kruskal–Wallis, se fija un nivel de significancia de 0.001 debido al tamaño de la muestra con el fin de reducir la probabilidad de falsos positivos y garantizar que únicamente diferencias en la distribucion realmente relevantes superen el umbral de significancia.
+
+$$
+H_0 : \text{La distribución de MntSum es la misma en todos los grupos de AcceptedCmpOverall.}
+$$
+
+$$
+H_1 : \text{Al menos un grupo tiene una distribución diferente de MntSum.}
+
+$$
+
+```{r echo = FALSE, warning = FALSE}
+
+#Creamos data 5 para aislarlos
+data5 <- data2 %>%
+  select(MntSum, AcceptedCmpOverall)
+
+data5$AcceptedCmpOverall <- as.factor(data5$AcceptedCmpOverall)
+
+# Aplicamos Kruskal-Wallis
+kruskal.test(MntSum ~ AcceptedCmpOverall, data = data5)
+```
+
+Se rechaza la hipotesis nula debido a que p-value es menor a 0.001 lo cual indica que al menos la distribucion de un grupo que acepto la campaña difiere de los demás, por lo que se requiere un análisis post-hoc para identificar cuáles grupos difieren significativamente.
+
+```{r echo = FALSE, warning = FALSE}
+posthoc <- kwAllPairsNemenyiTest(MntSum ~ AcceptedCmpOverall, data = data5)
+summary(posthoc)
+
+```
+
+Los resultados del análisis post-hoc de Nemenyi muestran que los clientes que no aceptaron ninguna campaña presentan un gasto total significativamente menor en comparación con todos los grupos que aceptaron al menos una campaña (p < 0.001 en todos los casos). Además, entre quienes sí aceptaron, se observa una diferencia significativa únicamente entre los que aceptaron una campaña y los que aceptaron dos (p < 0.001), mientras que no se encuentran diferencias estadísticamente significativas entre los grupos que aceptaron dos, tres o cuatro campañas. En conjunto, esto indica que el mayor contraste en el gasto total se da entre no haber aceptado campañas frente a haber aceptado al menos una, con un incremento adicional al pasar de una a dos campañas aceptadas.
+
+Ahora se procede a hacer intervalos de confianza para
+
+```{r echo = FALSE, warning = FALSE}
+
+
+
+##############################################################################
+# Intervalos de confianza
+##############################################################################
+
+# Función bootstrap para la mediana
+boot_median <- function(data, indices) {
+  d <- data[indices]
+  median(d, na.rm = TRUE)
+}
+
+set.seed(123)   # reproducibilidad
+B <- 5000       # número de réplicas
+alpha <- 0.05   # IC 95%
+
+# Aseguramos que AcceptedCmpOverall sea factor
+data2$AcceptedCmpOverall <- as.factor(data2$AcceptedCmpOverall)
+
+# Calcular IC BCa por cada categoría
+resultados <- lapply(levels(data2$AcceptedCmpOverall), function(niv) {
+  subset_data <- data2$MntSum[data2$AcceptedCmpOverall == niv]
+  subset_data <- subset_data[!is.na(subset_data)]
+  n_g <- length(subset_data)
+  
+  if (n_g < 2) {
+    return(data.frame(
+      AcceptedCmpOverall = niv,
+      n = n_g,
+      Median = ifelse(n_g == 1, subset_data, NA_real_),
+      IC_low = NA_real_,
+      IC_high = NA_real_
+    ))
+  }
+  
+  boot_obj <- boot(data = subset_data, statistic = boot_median, R = B)
+  
+  ci <- try(boot.ci(boot_obj, conf = 1 - alpha, type = "bca"), silent = TRUE)
+  
+  if (inherits(ci, "try-error") || is.null(ci$bca)) {
+    return(data.frame(
+      AcceptedCmpOverall = niv,
+      n = n_g,
+      Median = median(subset_data),
+      IC_low = NA_real_,
+      IC_high = NA_real_
+    ))
+  } else {
+    return(data.frame(
+      AcceptedCmpOverall = niv,
+      n = n_g,
+      Median = median(subset_data),
+      IC_low = ci$bca[4],
+      IC_high = ci$bca[5]
+    ))
+  }
+})
+
+# Combinar en data frame
+df_resultados <- bind_rows(resultados)
+kable(df_resultados,
+      caption = "Intervalos de confianza BCa (95%) para la mediana en MnSum con respecto a las campañas aceptadas ")
+
+```
+Los resultados muestran que el gasto total en productos (MntSum) difiere significativamente según el número de campañas aceptadas. En particular, los clientes que no aceptaron campañas presentan un gasto sustancialmente menor que todos los demás grupos, lo cual evidencia que aceptar al menos una campaña marca un cambio relevante en el comportamiento de consumo. Asimismo, se observa un incremento adicional al pasar de una a dos campañas aceptadas; sin embargo, más allá de este punto (2, 3 o 4 campañas), las diferencias en gasto dejan de ser estadísticamente significativas, como lo confirma el solapamiento de los intervalos de confianza. Esto sugiere que la principal brecha se concentra entre no participar y participar en las campañas, y en menor medida entre aceptar solo una campaña frente a dos.
+
+
+## Referencias
+
+Cohen, J. (1988). Statistical Power Analysis for the Behavioral Sciences (2nd ed.). Hillsdale, NJ: Lawrence Erlbaum Associates.
+
+Lakens, D. (2022). Sample size justification. Collabra: Psychology, 8(1), 33267. https://doi.org/10.1525/collabra.33267
+
+Vankelecom, L., et al. (2025). A systematic review on the evolution of power analysis. Psychological Methods. https://pmc.ncbi.nlm.nih.gov/articles/PMC11720577/
+
+Nakagawa, S., Lagisz, M., Yang, Y., & Drobniak, S. M. (2024). Finding the right power balance: Better study design and collaboration can reduce dependence on statistical power. PLOS Biology, 22(1), e3002423. https://doi.org/10.1371/journal.pbio.3002423

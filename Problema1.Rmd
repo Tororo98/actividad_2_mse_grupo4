@@ -2,7 +2,11 @@
 title: "Actividad 2 MSE Grupo 4"
 author: "Sebastian Toro y Carlos Preciado"
 date: "2025-09-13"
-output: rmdformats::readthedown
+output:
+  bookdown::html_document2:
+    base_format: rmdformats::readthedown
+    toc_depth: 3
+    number_sections: true
 ---
 
 ```{r setup, include=FALSE}
@@ -15,7 +19,7 @@ Este problema se centra en el análisis de un proceso de solicitudes de servicio
 
 La tasa promedio de solicitudes (λ) es de 5 por hora, lo que representa el parámetro poblacional. A través de la simulación, generaremos muestras aleatorias para observar cómo los estimadores muestrales, en este caso la frecuencia relativa y la media muestral, se aproximan a sus respectivos parámetros teóricos (la probabilidad P(X=3) y la media λ=5) a medida que el tamaño de la muestra aumenta. Esto nos permitirá ilustrar los principios de la consistencia y la Ley de los Grandes Números.
 
-## Introducción: Marco Teórico y Justificación
+### Introducción: Marco Teórico y Justificación
 El siguiente informe presenta un análisis sobre el comportamiento de una distribución de Poisson, aplicada a la tasa de solicitudes de reparación de una empresa de servicio técnico. La premisa es que el número de solicitudes por hora sigue una distribución de Poisson con una media teórica (parámetro λ) de 5.
 
 El objetivo de este estudio es doble:
@@ -26,9 +30,9 @@ El objetivo de este estudio es doble:
 
 Este ejercicio práctico nos permite ilustrar conceptos clave de la inferencia estadística, como la consistencia de un estimador y la Ley de los Grandes Números. Un estimador es consistente si su valor se aproxima al parámetro real de la población a medida que el tamaño de la muestra crece. La Ley de los Grandes Números establece que el promedio de una muestra aleatoria de una variable aleatoria converge a la media teórica de la población a medida que el tamaño de la muestra aumenta.
 
-## Análisis y Resultados
+### Análisis y Resultados
 
-### 1. Cálculo de Probabilidad Teórica
+### Cálculo de Probabilidad Teórica
 La probabilidad de que lleguen exactamente 3 solicitudes en una hora, bajo una distribución de Poisson con λ=5, se calcula usando la fórmula:
 
 $$
@@ -43,7 +47,7 @@ $$
 
 En R, este cálculo se realiza con dpois(3, lambda = 5), lo que nos da el valor exacto de 0.1403738. Este es el valor de referencia con el que compararemos los resultados de nuestras simulaciones.
 
-### 2. Simulación con una Muestra
+### Simulación con una Muestra
 Se generó una única muestra de tamaño $n=1,000$ a partir de una distribución de Poisson con $λ=5$. El código rpois(1000, lambda = 5) simula el número de solicitudes en 1,000 horas diferentes.
 
 El cálculo de la frecuencia relativa para $X=3$ en esta muestra se obtuvo como: 
@@ -55,7 +59,7 @@ El hecho de que la frecuencia observada sea ligeramente superior a la teórica e
 
 Podriamos decir que el valor de 0.151 es una estimación fiable, ya que la desviación es mínima en el gran esquema de la distribución de probabilidad, confirmando que la muestra de n=1,000 fue lo suficientemente representativa.
 
-### 3 Análisis de la Variabilidad entre Muestras
+### Análisis de la Variabilidad entre Muestras
 
 Para ilustrar el concepto de la distribución muestral de un estimador, se generaron 100 muestras, cada una de tamaño $n=1,000$, y se calculó la frecuencia relativa para $X=3$ en cada una.
 
@@ -69,11 +73,13 @@ El gráfico \@ref(fig:frecuencia-variabilidad) de dispersión con las 100 frecue
 
 - **Dispersión y Precisión:** No hay una tendencia de los puntos a desviarse por encima o por debajo de la línea. Y aunque, los puntos no están perfectamente alineados, lo que confirma la presencia del **error de muestreo** inherente. Sin embargo, la dispersión es relativamente baja. La mayoría de los puntos se encuentran en un rango estrecho, lo que indica que, para un tamaño muestral de n=1,000, nuestro estimador es **preciso**. De modo que incluso si solo tomamos una muestra, es muy probable que nuestra estimación esté muy cerca del valor real. La precisión es una medida de la fiabilidad de la estimación.
 
-### 4 Impacto del Tamaño Muestral
+### Impacto del Tamaño Muestral En la Frecuencia Relativa
 
 En esta sección, se generaron muestras de tamaños crecientes (desde 5 hasta 1,000) para observar el efecto de la muestra en la estimación.
 
-![Grafico de Frecuencia Relativa Con Muestras Crecientes](graphs/frecuencia_relativa_creciente.png)
+```{r 3, echo=FALSE, fig.cap="Frecuencia relativa creciente en función del tamaño muestral"}
+knitr::include_graphics("graphs/frecuencia_relativa_creciente.png")
+```
 
 El gráfico de la **Frecuencia Relativa vs. Tamaño Muestral** es una de las demostraciones visuales más poderosas de la **consistencia** de un estimador y de la **Ley de los Grandes Números**.
 
@@ -83,11 +89,14 @@ El gráfico de la **Frecuencia Relativa vs. Tamaño Muestral** es una de las dem
 
 Esto demuestra de forma visual el concepto de **consistencia**: a medida que el tamaño de la muestra tiende a ser más grande, la frecuencia relativa (nuestro estimador) converge hacia la probabilidad teórica (el parámetro real). En otras palabras, la diferencia absoluta entre el estimador y el parámetro tiende a cero.
 
-### 5 Convergencia de la Media Muestral
+### Convergencia de la Media Muestral
 
-Este análisis es análogo al anterior, pero centrado en la media de la distribución. La media teórica de una distribución de Poisson es igual a su parámetro λ, en este caso, 5.
+Este análisis es similar al anterior, pero centrado en la media de la distribución. La media teórica de una distribución de Poisson es igual a su parámetro λ, en este caso, 5.
 
-![Grafico de Dispersion Promedio Muestral en 100 Muestras](graphs/dispersion_prm_muestral.png)
+
+```{r 4, echo=FALSE, fig.cap="Grafico de Dispersion Promedio Muestral en 100 Muestras"}
+knitr::include_graphics("graphs/dispersion_prm_muestral.png")
+```
 
 El gráfico que muestra los **Promedios Muestrales en 100 Muestras** de tamaño $n=1,000$ es una representación visual de la **distribución muestral de la media**.
 
@@ -96,18 +105,36 @@ El gráfico que muestra los **Promedios Muestrales en 100 Muestras** de tamaño 
 * **El Teorema del Límite Central en Acción:** Si bien este gráfico no muestra la distribución de forma explícita, la agrupación simétrica de los puntos alrededor de la media teórica es un resultado directo del **Teorema del Límite Central (TLC)**. El TLC garantiza que, para un tamaño muestral suficientemente grande, la distribución de los promedios muestrales se aproxima a una distribución normal, independientemente de la forma de la distribución original de la población. Esta normalidad nos permite realizar inferencias y construir intervalos de confianza, que son herramientas clave en la estadística.
 
 
-### 6 Impacto del Tamaño Muestral en la Media
+### Impacto del Tamaño Muestral en la Media
 
 Finalmente, se investigó cómo el tamaño de la muestra afecta la convergencia de la media muestral.
 
-![Grafico de Promedios Muestrales](graphs/promedios_muestrales.png)
+
+```{r 5, echo=FALSE, fig.cap="Grafico de Promedios Muestrales"}
+knitr::include_graphics("graphs/promedios_muestrales.png")
+```
+
 
 Este gráfico, que muestra la **Convergencia del Promedio Muestral**, es la otra cara de la moneda de la Ley de los Grandes Números.
 
 * **Del Caos a la Estabilidad:** La trayectoria del promedio muestral desde n=5 hasta n=1,000 es elocuente. Para muestras pequeñas, el promedio muestral es errático, con fluctuaciones salvajes. Por ejemplo, se observan valores que varían desde 4.4 a 5.4. Esto subraya que la variabilidad de la muestra inicial puede llevar a estimaciones muy diferentes y potencialmente engañosas.
 
-* **La Estabilización del Estimador:** Sin embargo, a medida que el tamaño muestral aumenta, la línea se estabiliza y se pega a la línea horizontal de $\lambda = 5$. Esto es la esencia de la Ley de los Grandes Números: la "promedio" de las observaciones aleatorias converge a su valor esperado a medida que la muestra crece. Como estadístico, este gráfico es la justificación fundamental para el trabajo con grandes conjuntos de datos (Big Data), ya que nos asegura que, al acumular más información, la estimación del parámetro poblacional se vuelve más robusta, fiable y menos susceptible a las variaciones aleatorias de un pequeño número de observaciones.
+* **La Estabilización del Estimador:** Sin embargo, a medida que el tamaño muestral aumenta, la línea se estabiliza y se pega a la línea horizontal de $\lambda = 5$. Esto es la esencia de la Ley de los Grandes Números: el "promedio" de las observaciones aleatorias converge a su valor esperado a medida que la muestra crece. Como estadístico, este gráfico es la justificación fundamental para el trabajo con grandes conjuntos de datos (Big Data), ya que nos asegura que, al acumular más información, la estimación del parámetro poblacional se vuelve más robusta, fiable y menos susceptible a las variaciones aleatorias de un pequeño número de observaciones.
 
-Este comportamiento ilustra el funcionamiento de la **Ley de los Grandes Números:** el promedio de las observaciones de una muestra aleatoria de un proceso tiende a la media teórica (el valor esperado de la población) a medida que el tamaño de la muestra se hace más grande. Esto es un pilar fundamental de la inferencia estadística y valida el uso de la media muestral como un estimador confiable del parámetro poblacional.
+Este comportamiento ilustra el funcionamiento de la **Ley de los Grandes Números:** el promedio de las observaciones de una muestra aleatoria de un proceso tiende a la media teórica (el valor esperado de la población) a medida que el tamaño de la muestra se hace más grande. Esto es un pilar fundamental de la inferencia estadística y valida el uso de la media muestral como un estimador confiable del parámetro poblacional en este caso
 
-# Referencias
+## Referencias
+
+- Casella, G., & Berger, R. L. (2002). *Statistical Inference* (2nd ed.). Duxbury.  
+- Wasserman, L. (2004). *All of Statistics: A Concise Course in Statistical Inference*. Springer.  
+- Rice, J. A. (2007). *Mathematical Statistics and Data Analysis* (3rd ed.). Cengage.  
+- Ross, S. (2019). *Introduction to Probability and Statistics for Engineers and Scientists* (6th ed.). Academic Press.  
+- Montgomery, D. C., & Runger, G. C. (2018). *Applied Statistics and Probability for Engineers* (7th ed.). Wiley.  
+- Agresti, A., & Franklin, C. (2017). *Statistics: The Art and Science of Learning from Data* (4th ed.). Pearson.  
+- DeGroot, M. H., & Schervish, M. J. (2012). *Probability and Statistics* (4th ed.). Addison-Wesley.  
+- Blitzstein, J. K., & Hwang, J. (2019). *Introduction to Probability*. Chapman & Hall/CRC.  
+- Downey, A. (2012). *Think Stats: Exploratory Data Analysis in Python*. O’Reilly. (Disponible gratis en línea).  
+- James, G., Witten, D., Hastie, T., & Tibshirani, R. (2021). *An Introduction to Statistical Learning with Applications in R* (2nd ed.). Springer.  
+  👉 [https://www.statlearning.com](https://www.statlearning.com)  
+- OpenIntro. (2021). *OpenIntro Statistics* (4th ed.). OpenIntro Project.  
+  👉 [https://www.openintro.org/book/os/](https://www.openintro.org/book/os/)

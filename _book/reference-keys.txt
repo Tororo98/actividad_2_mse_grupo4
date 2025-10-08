@@ -1,0 +1,13 @@
+fig:frecuencia-variabilidad
+descripción-del-problema-1
+introducción-marco-teórico-y-justificación
+análisis-y-resultados
+cálculo-de-probabilidad-teórica
+simulación-con-una-muestra
+análisis-de-la-variabilidad-entre-muestras
+impacto-del-tamaño-muestral
+convergencia-de-la-media-muestral
+impacto-del-tamaño-muestral-en-la-media
+descripción-del-problema-2
+simulación-y-distribución-de-los-estimadores
+referencias

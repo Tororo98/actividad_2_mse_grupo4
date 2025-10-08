@@ -1,0 +1,216 @@
+---
+title: '5'
+author: "carlos"
+output: html_document
+---
+
+```{r message = FALSE, include = FALSE, warning = FALSE}
+#Librerias
+library(ggplot2)
+library(boot)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(readxl)
+library(mice)
+library(summarytools)
+library(goftest)
+library(PMCMRplus)
+library(nortest)
+library(fBasics)
+```
+
+## Descripción del Problema 5: Análisis de potencia, tamaño del efecto y errores tipo I y II en una prueba de hipótesis
+
+**Caso:** Se asume que la presión arterial en la población general sigue una distribución normal con media 120 mmHg y desviación estándar 15 mmHg. Un laboratorio desea evaluar si la media de presión arterial en un grupo de pacientes con cierta enfermedad difiere significativamente de 120 mmHg, mediante una prueba t para una muestra, asumiendo varianza poblacional desconocida.
+
+**Objetivo del caso:** Determinar de manera informada un tamaño de muestra y un nivel de significancia adecuados para realizar el estudio.
+
+ - Fija inicialmente el nivel de significancia en $\alpha$ = 0.1
+ - Evalúa la potencia estadística para diferentes tamaños muestrales $n$ =
+ 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900 y 1,000.
+ - Considera tres tamaños del efecto: $d$=0.2 (pequeño), $d$=0.5 (mediano), $d$=0.8 (grande).
+
+ - Visualiza los resultados:
+   - Eje $X$: tamaño muestral.
+   - Eje $Y$: potencia estadística.
+   - Traza una curva para cada tamaño del efecto.
+   - Utiliza las funciones `power.t.test` y `ggplot2` en **R** para construir los gráficos.
+   - Posteriormente, repite el análisis para $\alpha$=0.05 y $\alpha$ =0.01 y compara los tres gráficos.
+   
+
+```{r echo = FALSE, warning = FALSE}
+
+##############################################################################
+# Curvas de potencia vs tamaño muestral (prueba t bilateral, una muestra)
+# H0: mu = 120,  H1: mu != 120,  sigma = 15,  alpha = 0.10
+##############################################################################
+
+# Parámetros poblacionales y de diseño
+mu0   <- 120        # media bajo H0
+sigma <- 15         # D.E poblacional
+alpha <- 0.10       # nivel de significación
+n_vals <- c(10,20,30,40,50,60,70,80,90,100,200,300,400,500,600,700,800,900,1000)
+
+# Tamaños del efecto (Cohen's d)
+d_vals <- c(0.2, 0.5, 0.8)   # pequeño, mediano, grande
+
+# Malla n x d y cálculo de potencia
+grid <- expand.grid(n = n_vals, d = d_vals) %>%
+  mutate(delta = d * sigma,  # OJO diferencia absoluta en unidades originales
+         power = mapply(function(n, delta){
+           power.t.test(n = n,
+                        delta = delta,
+                        sd = sigma,
+                        sig.level = alpha,
+                        type = "one.sample",
+                        alternative = "two.sided")$power
+         }, n, delta))
+
+# Tabla (opcional)
+kable(grid %>% arrange(d, n),
+      digits = 4,
+      caption = "Tabla 5.1: Potencia (1-β) por tamaño muestral y tamaño del efecto (prueba t bilateral, α = 0.10)")
+
+# Gráfico: Potencia vs Tamaño muestral, una curva por d
+ggplot(grid, aes(x = n, y = power, color = factor(d), group = d)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 0.8, linetype = "dashed") +
+  scale_y_continuous(limits = c(0,1)) +
+  scale_color_discrete(name = "Tamaño del efecto (d)",
+                       labels = c("0.2 (pequeño)", "0.5 (mediano)", "0.8 (grande)")) +
+  labs(title = "Figura 5.1: Curvas de potencia (prueba t bilateral, una muestra)",
+       subtitle = expression(paste(mu[0]," = 120,  ", alpha, " = 0.10,  ", sigma, " = 15")),
+       x = "Tamaño muestral (n)",
+       y = "Potencia (1 - β)") +
+  theme_minimal()
+
+##############################################################################
+# Curvas de potencia vs tamaño muestral (prueba t bilateral, una muestra)
+# H0: mu = 120,  H1: mu != 120,  sigma = 15,  alpha = 0.05
+##############################################################################
+
+# Parámetros poblacionales y de diseño
+mu0   <- 120        # media bajo H0
+sigma <- 15         # D.E poblacional
+alpha <- 0.05       # nivel de significación
+n_vals <- c(10,20,30,40,50,60,70,80,90,100,200,300,400,500,600,700,800,900,1000)
+
+# Tamaños del efecto (Cohen's d)
+d_vals <- c(0.2, 0.5, 0.8)   # pequeño, mediano, grande
+
+# Malla n x d y cálculo de potencia
+grid <- expand.grid(n = n_vals, d = d_vals) %>%
+  mutate(delta = d * sigma,  # OJO diferencia absoluta en unidades originales
+         power = mapply(function(n, delta){
+           power.t.test(n = n,
+                        delta = delta,
+                        sd = sigma,
+                        sig.level = alpha,
+                        type = "one.sample",
+                        alternative = "two.sided")$power
+         }, n, delta))
+
+# Tabla (opcional)
+kable(grid %>% arrange(d, n),
+      digits = 4,
+      caption = "Tabla 5.2: Potencia (1-β) por tamaño muestral y tamaño del efecto (prueba t bilateral, α = 0.05)")
+
+# Gráfico: Potencia vs Tamaño muestral, una curva por d
+ggplot(grid, aes(x = n, y = power, color = factor(d), group = d)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 0.8, linetype = "dashed") +
+  scale_y_continuous(limits = c(0,1)) +
+  scale_color_discrete(name = "Tamaño del efecto (d)",
+                       labels = c("0.2 (pequeño)", "0.5 (mediano)", "0.8 (grande)")) +
+  labs(title = "Figura 5.2 : Curvas de potencia (prueba t bilateral, una muestra)",
+       subtitle = expression(paste(mu[0]," = 120,  ", alpha, " = 0.05,  ", sigma, " = 15")),
+       x = "Tamaño muestral (n)",
+       y = "Potencia (1 - β)") +
+  theme_minimal()
+
+##############################################################################
+# Curvas de potencia vs tamaño muestral (prueba t bilateral, una muestra)
+# H0: mu = 120,  H1: mu != 120,  sigma = 15,  alpha = 0.01
+##############################################################################
+
+# Parámetros poblacionales y de diseño
+mu0   <- 120        # media bajo H0
+sigma <- 15         # D.E poblacional
+alpha <- 0.01       # nivel de significación
+n_vals <- c(10,20,30,40,50,60,70,80,90,100,200,300,400,500,600,700,800,900,1000)
+
+# Tamaños del efecto (Cohen's d)
+d_vals <- c(0.2, 0.5, 0.8)   # pequeño, mediano, grande
+
+# Malla n x d y cálculo de potencia
+grid <- expand.grid(n = n_vals, d = d_vals) %>%
+  mutate(delta = d * sigma,  # OJO diferencia absoluta en unidades originales
+         power = mapply(function(n, delta){
+           power.t.test(n = n,
+                        delta = delta,
+                        sd = sigma,
+                        sig.level = alpha,
+                        type = "one.sample",
+                        alternative = "two.sided")$power
+         }, n, delta))
+
+# Tabla (opcional)
+kable(grid %>% arrange(d, n),
+      digits = 4,
+      caption = "Tabla 5.3: Potencia (1-β) por tamaño muestral y tamaño del efecto (prueba t bilateral, α = 0.01)")
+
+# Gráfico: Potencia vs Tamaño muestral, una curva por d
+ggplot(grid, aes(x = n, y = power, color = factor(d), group = d)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 0.8, linetype = "dashed") +
+  scale_y_continuous(limits = c(0,1)) +
+  scale_color_discrete(name = "Tamaño del efecto (d)",
+                       labels = c("0.2 (pequeño)", "0.5 (mediano)", "0.8 (grande)")) +
+  labs(title = "Figura 5.3: Curvas de potencia (prueba t bilateral, una muestra)",
+       subtitle = expression(paste(mu[0]," = 120,  ", alpha, " = 0.01,  ", sigma, " = 15")),
+       x = "Tamaño muestral (n)",
+       y = "Potencia (1 - β)") +
+  theme_minimal()
+```
+
+Preguntas orientadoras para el análisis:
+
+ - ¿Qué tamaño de muestra se requiere para alcanzar una potencia del 80% al detectar un efecto grande($d$=0.8)?
+ 
+Para un nivel de significancia 0.10 [Figura 5.1]: El tamaño mínimo de muestra requerido se encuentra entre 10 y 20. Para u nivel de significancia 0.05 [Figura 5.2], el tamaño mínimo de muestra requerido también se encuentra entre 10 y 20. Finalmente un nivel de significancia 0.01 [Figura 5.3], el tamaño mínimo de muestra requerido aumenta, y se encuentra entre 20 y 30.
+
+ - ¿Cuántas observaciones se necesitan para detectar un efecto mediano ($d$=0.5) con una potencia adecuada?
+
+Una potencia adecuada significaria que se esta asignando los recursos eficientemente; ademas, aumentar la potencia se define como `potencia` = 1 − $\beta$, donde $\beta$ es la probabilidad de cometer error tipo II por lo que una potencia alta aumenta probabilidad de no cometer el error tipo II. Por lo que para $\alpha$ = 0.10 [Figura 5.1], un tamaño muestral seria 40 y 50 observaciones ya que la potencia seria [0.9281 - 0.9672] y a partir de esos datos la potencia no crece mucho. Lo mismo aplicaria para $\alpha$ = 0.05 [Figura 5.2], un tamaño muestral entre 60 y 70 observaciones porque la potencia seria entre [0.9678 - 0.9848] y a partir de ahi la potencia no crece mucho. Para $\alpha$ = 0.01 [Figura 5.3], un tamaño muestral entre 80 y 90 observaciones porque la potencia rondaria valores de [0.9642-0.9812].
+
+ - Para un efecto grande, ¿qué sucede al aumentar el tamaño de muestra más allá de 300 observaciones? ¿Es eficiente?
+
+Para $\alpha$ = 0.10 [Figura 5.1], lo que sucede es que la potencia llega a 100%, no es eficiente porque ya llego al maximo de potencia cuando llego a las 50 observaciones. Para $\alpha$ = 0.05 [Figura 5.2], lo que sucede es que la potencia llega a 100%, no es eficiente porque ya llego al maximo de potencia cuando llego a las 60 observaciones. Para $\alpha$ = 0.01 [Figura 5.3], lo que sucede es que la potencia llega a 100%, no es eficiente porque ya llego al maximo de potencia cuando llego a las 70 observaciones
+ 
+ 
+ - Explica cómo influye el tamaño del efecto sobre la potencia estadística.
+
+A mayor tamaño del efecto, mayor es la potencia para un mismo tamaño muestral. De manera equivalente, para alcanzar una potencia determinada (por ejemplo, 0.80), el tamaño muestral requerido disminuye conforme aumenta el efecto.
+
+ - ¿Cómo afecta el tamaño muestral a la potencia estadística?
+ 
+El tamaño muestral es un factor decisivo en la potencia estadística: a mayor n, mayor potencia, y la magnitud del efecto condiciona cuán rápido se alcanza el umbral de potencia deseado. Efectos grandes se detectan con muestras pequeñas, mientras 
+#que efectos pequeños exigen tamaños muestrales muy grandes para evitar errores tipo II.
+
+ - ¿En qué punto aumentar el tamaño muestral deja de proporcionar beneficios significativos en la potencia?
+ 
+El incremento en el tamaño muestral mejora notablemente la potencia estadística cuando las muestras son pequeñas. Sin embargo, los beneficios adicionales se reducen conforme la potencia se aproxima a 1. 
+
+En los resultados obtenidos, para un $\alpha$ = 0.10 [Figura 5.1] el aumento deja de ser relevante a partir de aproximadamente 500 muestras cuando el efecto es pequeño, 70 muestras cuando el efecto es mediano y 30 muestras cuando el efecto es grande. 
+
+En el caso de α = 0.05 [Figura 5.2], el aumento deja de ser relevante a partir de aproximadamente 500 muestras con efecto pequeño, 80 muestras cuando efecto es mediano y 40 cuando el efecto es grande. 
+
+Por ultimo, para α = 0.01 [Figura 5.3] el aumento deja de ser relevante a partir de aproximadamente 700 muestras cuando el efecto es pequeño, 100 muestras cuando el efecto es mediano y 50 cuando el efecto es grande 
+
+Con base en los gráficos obtenidos y tu análisis, propón un tamaño de muestra y un nivel de significancia apropiados para diseñar el estudio.
+
+Se considera que un tamaño de muestra de 300 sujetos es adecuado porque es el mínimo, en comparación con otros tamaños evaluados, que garantiza una potencia superior al 80% para los niveles de significancia analizados ($\alpha$ = 0.10 , 0.05 , 0.01) en las figuras 5.1, 5.2 y 5.3 respectivamente. Asimismo, se selecciona un nivel de significancia de 0.10 [Figura 5.1], ya que, frente a valores más estrictos ($\alpha$ = 0.05, y 0.01) [Figura 5.2 y 5.3], este proporciona la mayor potencia estadística en donde se alcanzan valores de 0.9650, 1.0000 y 1.0000, lo que garantiza una alta probabilidad de detectar diferencias reales en la población.

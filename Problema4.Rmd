@@ -1,0 +1,239 @@
+---
+title: "4"
+author: "carlos"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    number_sections: true
+---
+
+```{r message = FALSE, include = FALSE, warning = FALSE}
+
+#Librerias
+library(ggplot2)
+library(boot)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(readxl)
+library(mice)
+library(summarytools)
+library(goftest)
+library(PMCMRplus)
+library(nortest)
+library(fBasics)
+
+###############################################################################
+###############################################################################
+#Problema 4: Estimación de intervalos de confianza
+##############################################################################
+#############################################################################
+
+##############################################################################
+#a. Normalidad
+###############################################################################
+
+###############################################################################
+#Elabora un histograma y una curva de densidad de la muestra. 
+#¿Podría considerarse normal la población de origen de la muestra?
+###############################################################################
+
+# Muestra de eficiencia energética (kWh/L)
+muestra <- c(6.12, 5.87, 5.45, 6.33, 5.71, 6.04, 5.92, 5.65, 6.18, 
+             5.78, 5.95, 6.21, 5.63, 5.79, 6.11, 5.88, 6.02, 5.76, 5.85, 6.10)
+
+(length(muestra))
+
+```
+
+## Descripción del Problema 4: Estimación de intervalos de confianza
+Una empresa dedicada a la generación de energía renovable desea evaluar el rendimiento de sus 20 generadores eléctricos portátiles, alimentados con biocombustible. Estos generadores se utilizan en proyectos remotos, donde la eficiencia energética es crucial para minimizar costos y reducir la huella ambiental. Para el estudio, se mide la eficiencia energética de cada generador, expresada en kilovatios-hora por litro de combustible (kWh/L). 
+
+```{r eval=FALSE}
+# Muestra de eficiencia energética (kWh/L)
+muestra <- c(6.12, 5.87, 5.45, 6.33, 5.71, 6.04, 5.92, 5.65, 6.18, 
+             5.78, 5.95, 6.21, 5.63, 5.79, 6.11, 5.88, 6.02, 5.76, 5.85, 6.10)
+```
+
+El objetivo es determinar intervalos de confianza al 95% para la eficiencia media.
+
+Realiza las siguientes actividades:
+
+a. Normalidad:
+
+ - Elabora un histograma y una curva de densidad de la muestra. ¿Podría considerarse normal la población de origen de la muestra?
+
+```{r echo = FALSE, warning = FALSE}
+
+# Histograma básico
+hist(muestra, 
+     main = "Figura 4.1: Histograma de la muestra", 
+     xlab = "Valores", 
+     ylab = "Frecuencia", 
+     col = "lightblue", 
+     border = "black")
+```
+
+```{r message = FALSE, include = FALSE, warning = FALSE}
+# Curva de densidad
+muestra1 <- muestra
+
+set.seed(124)  # Así se asegura que los números aleatorios sean siempre los mismos
+# Muestra simulada con misma media y sd
+muestra2 <- rnorm(length(muestra), mean = mean(muestra), sd = sd(muestra))
+
+# Construir dataframe
+df <- data.frame(
+  valores = c(muestra1, muestra2),
+  grupo = factor(rep(c("Muestra", "Distribucion normal"), each = length(muestra)))
+)
+```
+
+```{r echo = FALSE, warning = FALSE}
+# Graficar curvas de densidad
+ggplot(df, aes(x = valores, color = grupo, fill = grupo)) +
+  geom_density(alpha = 0.4, size = 1) +
+  labs(title = "Figura 4.2: Curvas de densidad superpuestas",
+       x = "Valores",
+       y = "Densidad") +
+  theme_minimal()
+```
+
+Al analizar las figuras 4.1 y 4.2 se observa que la muestra presenta una forma aproximadamente simétrica y sin colas pronunciadas, lo que sugiere un comportamiento cercano al de una distribución normal. En la Figura 4.1, la frecuencia de los valores se concentra alrededor del centro, mientras que la Figura 4.2 muestra un ajuste razonable, con solo pequeñas desviaciones en los picos y colas. Por lo tanto, de manera visual, puede considerarse que la población de origen de la muestra sigue una distribución normal, aunque este diagnóstico debería complementarse con pruebas estadísticas formales de normalidad para confirmarlo.
+
+
+ - Aplica pruebas para evaluar la normalidad. Expón claramente las hipótesis nula y alternativa. Determina el nivel de significancia adecuado. Argumenta el valor del nivel de significancia que uses.
+
+ 
+$$
+H_0 : \text{Los datos siguen una distribución normal.}
+$$
+
+$$
+H_1 : \text{Los datos no siguen una distribución normal.}
+$$
+Se fija nivel de significancia ($\alpha$) a 0.05 para la prueba de normalidad (Shapiro–Wilk) porque ofrece un equilibrio entre el riesgo de error tipo I (falsos positivos) y la potencia del test porque dado que el tamaño muestral es $n$ = 20, mantener el nivel de significancia igual a 0.05 evita usar un nivel demasiado estricto (por ejemplo, 0.01), que reduciría aún más la potencia, y al mismo tiempo impide recurrir a un umbral muy flexible ($\alpha$ = 0.10).
+
+ - Criterio de decisión:
+  
+Si el valor−p es mayor que $\alpha$ es igual a 0.05, no se rechaza $H_0$, lo que sugiere que los datos podrían seguir una distribución normal.
+
+```{r echo = FALSE, warning = FALSE}
+shapiro.test(muestra)
+```
+ - Comenta si los resultados sugieren la viabilidad de usar métodos paramétricos para calcular intervalos de confianza.
+
+Teniendo en cuenta lo obtenido en la prueba de Shapiro-Wilk, se puede asumir que los datos presentan un comportamiento cercano a una distribución gaussiana/normal. Sin embargo, el tamaño de la muestra es reducido, lo que limita la aplicación confiable del Teorema del Límite Central por lo que se podria calcular intervalos de confianza pero con t-student.
+
+b. Método paramétrico:
+
+ - Si se cumplen las condiciones para su aplicación, calcula un intervalo de confianza paramétrico.
+
+```{r}
+# Definir valores
+x_bar <- mean(muestra)   # Media muestral
+s <- sd(muestra)         # Desviación estándar muestral
+n <- length(muestra)     # Tamaño de la muestra
+alpha <- 0.05            # Nivel de significancia (1 - 0.95)
+
+# Calcular el valor crítico t
+t_alpha_2 <- qt(1 - alpha/2, df = n - 1)
+
+# Calcular el margen de error
+error <- t_alpha_2 * (s / sqrt(n))
+
+# Construir el intervalo de confianza
+IC_lower <- x_bar - error
+IC_upper <- x_bar + error
+
+# Mostrar resultados
+IC <- c(x_bar, IC_lower, IC_upper)
+names(IC) <- c("Media aritmetica","Límite Inferior", "Límite Superior")
+print(IC)
+```
+
+ - Compara e interpreta este intervalo con los obtenidos mediante métodos no paramétricos.
+
+```{r message = FALSE, include = FALSE, warning = FALSE}
+
+##############################################################################
+# Intervalo de confianza BCa (sesgo-acelerado) para la media 
+##############################################################################
+
+set.seed(123)       # Reproducibilidad
+B <- 5000           # Número de réplicas bootstrap
+alpha <- 0.05       # Nivel de significancia (95% de confianza)
+
+# Función estadística: la media
+boot_mean <- function(data, idx) mean(data[idx])
+
+# Ejecutar bootstrap sobre tu vector "muestra"
+bobj <- boot(data = muestra, statistic = boot_mean, R = B)
+
+# Intervalo de confianza BCa
+IC_bca <- boot.ci(bobj, conf = 1 - alpha, type = "bca")$bca[4:5]
+
+```
+
+```{r echo = FALSE, warning = FALSE}
+
+IC_bca_resultados <- c(mean(muestra),IC_bca[1],IC_bca[2])
+names(IC_bca_resultados) <- c("Media aritmetica","Límite Inferior", "Límite Superior")
+print(IC_bca_resultados)
+```
+
+El intervalo de confianza paramétrico (t-Student) para la media fue [5.813, 6.022], mientras que el intervalo de confianza no paramétrico obtenido mediante bootstrap BCa fue [5.822, 6.012]. El intervalo de confianza bootstrap, que no depende de supuestos de normalidad, respalda la validez del intervalo paramétrico. Dado que ambos intervalos son prácticamente coincidentes, se confirma que incluso sin dichas suposiciones se obtiene una estimación muy similar y sugiere que los métodos paramétricos tradicionales son adecuados para estos datos.
+
+c. Procedimiento bootstrap:
+
+ - Calcula 2 tipos de intervalos de confianza para la media mediante Bootstrap.
+ 
+ Primero se hace con el metodo percentil Bootstrap
+ 
+```{r}
+### Percentil Bootstrap
+set.seed(123)           # Reproducibilidad
+B <- 5000               # réplicas
+alpha <- 0.05           # Nivel de significancia (95% de confianza)
+
+# estadístico: la media
+boot_mean <- function(data, idx) mean(data[idx])
+
+# ejecutar bootstrap sobre tu vector 'muestra'
+bobj <- boot(data = muestra, statistic = boot_mean, R = B)
+
+# IC percentil al 95%
+IC_perc <- boot.ci(bobj, conf = 1 - alpha, type = "perc")$percent[4:5]
+
+IC_per_resultados <- c(IC_perc[1],IC_perc[2])
+names(IC_per_resultados) <- c("Límite Inferior", "Límite Superior")
+print(IC_per_resultados)
+
+```
+Luego se hace con el metodo normal Bootstrap
+
+```{r}
+### Normal bootstrap
+
+set.seed(123)  # Reproducibilidad
+B <- 5000      # réplicas
+alpha <- 0.05  # Nivel de significancia (95% de confianza)
+
+boot_mean <- function(data, idx) mean(data[idx])
+bobj <- boot(data = muestra, statistic = boot_mean, R = B)
+
+IC_norm <- boot.ci(bobj, conf = 1 - alpha, type = "norm")$normal[2:3]
+
+IC_norm_resultado <- c(IC_norm[1],IC_norm[2])
+names(IC_norm_resultado) <- c("Límite Inferior", "Límite Superior")
+print(IC_norm_resultado)
+
+```
+
+ - Compara ambos intervalos: ¿Son similares o presentan diferencias significativas?
+
+Los intervalos de confianza obtenidos mediante Bootstrap Percentil [5.8220, 6.0125] y Bootstrap Normal [5.8218, 6.0137] son prácticamente coincidentes, con diferencias mínimas en sus extremos (<0.002). Esto indica que ambos métodos son consistentes y que, en este caso, la distribución de la media muestral no presenta sesgos o asimetrías relevantes. Por tanto, cualquiera de los dos métodos resulta adecuado para estimar el intervalo de confianza de la media; además, los resultados son compatibles con el supuesto de normalidad de la muestra.
